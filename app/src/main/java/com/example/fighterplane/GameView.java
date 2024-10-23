@@ -3,6 +3,11 @@ package com.example.fighterplane;
 import android.app.Activity;
 import android.content.res.Resources;
 import android.graphics.Color;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
+import android.media.MediaPlayer;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.media.AudioAttributes;
@@ -19,12 +24,17 @@ import android.view.View;
 import android.widget.Button;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 
-public class GameView extends SurfaceView implements Runnable {
+public class GameView extends SurfaceView implements Runnable, SensorEventListener {
 
     private Thread gameThread;
     private boolean isPlaying;
+    // Sensor variables
+    private SensorManager sensorManager;
+    private Sensor accelerometer;
+    private MediaPlayer mediaPlayer;
     private int screenWidth, screenHeight;
     private Bitmap planeBitmap, enemyBitmap, bulletBitmap,backgroundBitmap,powerUpBitmap,masterEnemyBitmap;
     private float planeX, planeY;
@@ -33,14 +43,22 @@ public class GameView extends SurfaceView implements Runnable {
     private long lastBulletTime;
     private float backgroundX; // Position of the background
     private boolean gameOver;
-    private int score;// To keep track of points
+    public static int score;// To keep track of points
     private SoundPool soundPool;
-    private int bulletSoundId;
+    private boolean isPaused = false;
     private boolean isLoaded;
     private static final int MAX_BULLETS = 100;
+    private int bulletSoundId;
+    private int boomSoundId;
+    private int BackgroundSoundId;
     private static final long RELOAD_TIME_MS = 4000; // 4 seconds
+    private Bitmap pauseButtonBitmap;
+    private int pauseButtonX = 2100; // X position of the pause button
+    private int pauseButtonY = 800; // Y position of the pause button
+    private int pauseButtonWidth, pauseButtonHeight;
 
     private List<PowerUp> powerUps;
+    public static MasterEnemy masterEnemy;
 
     private int bulletsFired = 0;
     private boolean isReloading = false;
@@ -48,9 +66,6 @@ public class GameView extends SurfaceView implements Runnable {
 
     private Paint progressBarPaint;
     private Paint progressBarBackgroundPaint;
-
-    private MasterEnemy masterEnemy;
-
 
     private Bitmap decodeSampledBitmapFromResource(Resources res, int resId, int reqWidth, int reqHeight) {
         System.out.println("decoding resources");
@@ -106,6 +121,13 @@ public class GameView extends SurfaceView implements Runnable {
     }
 
     private void init(Context context) {
+        // Initialize sensors
+        sensorManager = (SensorManager) context.getSystemService(Context.SENSOR_SERVICE);
+        accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+
+        // Register listener for sensor changes
+        sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME);
+
         // Your initialization code here
         AudioAttributes audioAttributes = new AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_GAME)
@@ -117,11 +139,13 @@ public class GameView extends SurfaceView implements Runnable {
                 .setAudioAttributes(audioAttributes)
                 .build();
 
-        bulletSoundId = soundPool.load(context, R.raw.squick, 1);
+        bulletSoundId = soundPool.load(context, R.raw.squick, 2);
+        boomSoundId = soundPool.load(context, R.raw.blast, 1);
         isLoaded = false;
 
         soundPool.setOnLoadCompleteListener((soundPool, sampleId, status) -> isLoaded = true);
 
+        playBackgroundMusic(context);
         lastBulletTime = System.currentTimeMillis();
         gameOver = false;
         score = 0;
@@ -133,12 +157,12 @@ public class GameView extends SurfaceView implements Runnable {
         backgroundBitmap = decodeSampledBitmapFromResource(getResources(), R.drawable.oceanbackground, 3898, 2000); // Ensure this is 3 times the width of the screen
         // Load the power-up bitmap (adjust dimensions as needed)
         powerUpBitmap = decodeSampledBitmapFromResource(getResources(), R.drawable.powerup, 15, 15);
-        masterEnemyBitmap = decodeSampledBitmapFromResource(getResources(), R.drawable.bullet, 150, 150);
-
+        masterEnemyBitmap = decodeSampledBitmapFromResource(getResources(), R.drawable.poseidon_left, 150, 150);
+        initializePauseButton();
         backgroundX = 0; // Start background position at 0
 
-        planeX = 500;
-        planeY = 1500;
+        planeX = 0;
+        planeY = 500;
         bullets = new ArrayList<>();
         enemies = new ArrayList<>();
 
@@ -185,6 +209,16 @@ public class GameView extends SurfaceView implements Runnable {
         }
     }
 
+    private void initializePauseButton() {
+        pauseButtonBitmap = decodeSampledBitmapFromResource(getResources(), R.drawable.pausebutton,40,40); // Load pause button image
+        pauseButtonWidth = pauseButtonBitmap.getWidth();
+        pauseButtonHeight = pauseButtonBitmap.getHeight();
+    }
+
+    private void drawPauseButton(Canvas canvas) {
+        canvas.drawBitmap(pauseButtonBitmap, pauseButtonX, pauseButtonY, null);
+    }
+
     private void updatePowerUps() {
         for (int i = 0; i < powerUps.size(); i++) {
             PowerUp powerUp = powerUps.get(i);
@@ -201,11 +235,12 @@ public class GameView extends SurfaceView implements Runnable {
         List<PowerUp> collectedPowerUps = new ArrayList<>();
 
         for (PowerUp powerUp : powerUps) {
-            if (planeX < powerUp.x + powerUp.bitmap.getWidth() &&
-                    planeX + planeBitmap.getWidth() > powerUp.x &&
-                    planeY < powerUp.y + powerUp.bitmap.getHeight() &&
-                    planeY + planeBitmap.getHeight() > powerUp.y) {
-
+//            if (planeX < powerUp.x + powerUp.bitmap.getWidth() &&
+//                    planeX + planeBitmap.getWidth() > powerUp.x &&
+//                    planeY < powerUp.y + powerUp.bitmap.getHeight() &&
+//                    planeY + planeBitmap.getHeight() > powerUp.y)
+            if (pixelPerfectCollision(planeBitmap, planeX, planeY, powerUp.bitmap, powerUp.x, powerUp.y))
+            {
                 collectedPowerUps.add(powerUp); // Collect the power-up
                 applyPowerUpEffect(powerUp);    // Apply the power-up effect
             }
@@ -240,12 +275,12 @@ public class GameView extends SurfaceView implements Runnable {
     void createMaster(){
         // Assuming you have methods to get the game’s resources and setup
         String name = "Master";
-        float startX = -100; // Starts off-screen
-        float startY = 0;
-        int maxHealth = 100;
-        float speed = 1.0f; // Speed at which it moves into the screen
+        float startX = getWidth() - 400; // Starts off-screen
+        float startY = getHeight() / 2 - masterEnemyBitmap.getHeight()/2;
+        int maxHealth = 1000;
+        float speed = 5.0f; // Speed at which it moves into the screen
 
-        masterEnemy = new MasterEnemy(name, startX, startY, maxHealth, speed);
+        masterEnemy = new MasterEnemy(name, startX, startY, maxHealth, speed, masterEnemyBitmap);
     }
 
 
@@ -262,9 +297,19 @@ public class GameView extends SurfaceView implements Runnable {
     // Method to play the sound when a bullet is shot
     private void playBulletSound() {
         if (isLoaded) {
-            soundPool.play(bulletSoundId, 1, 1, 1, 0, 1f);
+            soundPool.play(bulletSoundId, 0.5f, 0.5f, 1, 0, 1f);
         }
     }
+
+    private void playBackgroundMusic(Context context) {
+        if (mediaPlayer == null) {
+            mediaPlayer = MediaPlayer.create(context, R.raw.background); // Ensure you place the file in res/raw
+            mediaPlayer.setLooping(true); // Loop the background music
+            mediaPlayer.setVolume(1.0f, 1.0f); // (leftVolume, rightVolume)
+        }
+        mediaPlayer.start(); // Start playing the music
+    }
+
 
 
     @Override
@@ -291,13 +336,72 @@ public class GameView extends SurfaceView implements Runnable {
                 planeY + bulletBitmap.getHeight() > masterEnemy.y;
     }
 
+    private boolean pixelPerfectCollision(Bitmap bitmapA, float xA, float yA, Bitmap bitmapB, float xB, float yB) {
+        // Get the width and height of the bitmaps
+        int widthA = bitmapA.getWidth();
+        int heightA = bitmapA.getHeight();
+        int widthB = bitmapB.getWidth();
+        int heightB = bitmapB.getHeight();
+
+        // Calculate the overlapping rectangle
+        int xOverlap = Math.max((int) xA, (int) xB);
+        int yOverlap = Math.max((int) yA, (int) yB);
+        int xOverlapEnd = Math.min((int) (xA + widthA), (int) (xB + widthB));
+        int yOverlapEnd = Math.min((int) (yA + heightA), (int) (yB + heightB));
+
+        // No overlap
+        if (xOverlap >= xOverlapEnd || yOverlap >= yOverlapEnd) {
+            return false;
+        }
+
+        // Iterate through the pixels in the overlapping rectangle
+        for (int x = xOverlap; x < xOverlapEnd; x++) {
+            for (int y = yOverlap; y < yOverlapEnd; y++) {
+                int pixelA = bitmapA.getPixel(x - (int) xA, y - (int) yA);
+                int pixelB = bitmapB.getPixel(x - (int) xB, y - (int) yB);
+
+                // Check if the pixels are not transparent (alpha > 0)
+                if (pixelA != Color.TRANSPARENT && pixelB != Color.TRANSPARENT) {
+                    return true; // Collision detected
+                }
+            }
+        }
+
+        return false; // No collision detected
+    }
+
+    void createEnemies(){
+        // Spawn new enemies
+        if (Math.random() < 0.03) {
+            float enemyX = screenWidth + enemyBitmap.getWidth(); // Start off the right side
+            float enemyY = (float) Math.random() * (screenHeight - enemyBitmap.getHeight());
+            enemies.add(new Enemy("Enemy", enemyX, enemyY, 100)); // Example enemy with 100 health
+        }
+    }
+
+    void updateBackground(){
+        // Update background position
+        backgroundX -= 5; // Adjust this value to control the speed of the scrolling
+        if (backgroundX <= -backgroundBitmap.getWidth()) {
+            backgroundX = 0; // Reset background position when it moves off-screen
+        }
+    }
+
+    private final Object bulletLock = new Object();
+    private final Object enemyLock = new Object();
+
     private void update() {
         if (gameOver) {
             return;
         }
 
-        if(score > 300){
+        if (score > 300) {
             createMaster();
+        }
+
+        if (isPaused) {
+            pauseBackgroundMusic();
+            return; // Skip the update logic if the game is paused
         }
 
         updatePowerUps();
@@ -307,85 +411,78 @@ public class GameView extends SurfaceView implements Runnable {
         // Update master enemy
         if (masterEnemy != null) {
             masterEnemy.update();
-
-            // Check collision with player
-            if (checkCollision(masterEnemy)) {
-                // Handle game over logic
+            if (pixelPerfectCollision(planeBitmap, planeX, planeY, masterEnemyBitmap, masterEnemy.x, masterEnemy.y)) {
                 endGame();
             }
         }
 
+        // Temporary lists to hold bullets and enemies to remove
+        List<Bullet> bulletsToRemove = new ArrayList<>();
+        List<Enemy> enemiesToRemove = new ArrayList<>();
 
         // Update bullets
-        for (int i = 0; i < bullets.size(); i++) {
-            Bullet bullet = bullets.get(i);
-            bullet.x += bullet.speedX; // Move the bullet to the right
-            if (bullet.x > screenWidth) { // Remove bullets that move off the right side
-                bullets.remove(i);
-                i--;
+        synchronized (bullets) { // Synchronize access to bullets list
+            for (Bullet bullet : bullets) {
+                bullet.x += bullet.speedX;
+                if (bullet.x > screenWidth) {
+                    bulletsToRemove.add(bullet); // Mark for removal
+                }
             }
         }
 
         // Update enemies
-        for (int i = 0; i < enemies.size(); i++) {
-            Enemy enemy = enemies.get(i);
-            enemy.x -= 10; // Move the enemy to the left
-            if (enemy.x + enemyBitmap.getWidth() < 0) { // Remove enemies that move off the left side
-                enemies.remove(i);
-                i--;
+        synchronized (enemies) { // Synchronize access to enemies list
+            for (Enemy enemy : enemies) {
+                enemy.x -= 10; // Move the enemy to the left
+                if (enemy.x + enemyBitmap.getWidth() < 0) {
+                    enemiesToRemove.add(enemy); // Mark for removal
+                }
             }
         }
 
         // Check for collisions
-        List<Bullet> bulletsToRemove = new ArrayList<>();
-        List<Enemy> enemiesToRemove = new ArrayList<>();
+        synchronized (bullets) { // Synchronize access to bullets list
+            synchronized (enemies) { // Synchronize access to enemies list
+                for (Bullet bullet : bullets) {
+                    for (Enemy enemy : enemies) {
+                        if (pixelPerfectCollision(bulletBitmap, bullet.x, bullet.y, enemyBitmap, enemy.x, enemy.y)) {
+                            enemy.reduceHealth(bullet.attack);
+                            bulletsToRemove.add(bullet); // Mark for removal
 
-        for (Bullet bullet : bullets) {
-            for (Enemy enemy : enemies) {
-                if (bullet.x < enemy.x + enemyBitmap.getWidth() &&
-                        bullet.x + bulletBitmap.getWidth() > enemy.x &&
-                        bullet.y < enemy.y + enemyBitmap.getHeight() &&
-                        bullet.y + bulletBitmap.getHeight() > enemy.y) {
-
-                    enemy.reduceHealth(bullet.attack);
-                    bulletsToRemove.add(bullet);
-
-                    // Check if the enemy is dead
-                    if (enemy.isDead()) {
-                        enemiesToRemove.add(enemy);
+                            if (enemy.isDead()) {
+                                enemiesToRemove.add(enemy); // Mark for removal
+                            }
+                        }
                     }
                 }
             }
         }
 
+        // Remove bullets and enemies safely
+        synchronized (bullets) { // Synchronize access to bullets list
+            bullets.removeAll(bulletsToRemove);
+        }
+        synchronized (enemies) { // Synchronize access to enemies list
+            enemies.removeAll(enemiesToRemove);
+        }
+
         // Check for collision between plane and enemies
-        for (Enemy enemy : enemies) {
-            if (planeX < enemy.x + enemyBitmap.getWidth() &&
-                    planeX + planeBitmap.getWidth() > enemy.x &&
-                    planeY < enemy.y + enemyBitmap.getHeight() &&
-                    planeY + planeBitmap.getHeight() > enemy.y) {
-                gameOver = true;
-                break;
+        synchronized (enemies) { // Synchronize access to enemies list
+            for (Enemy enemy : enemies) {
+                if (pixelPerfectCollision(planeBitmap, planeX, planeY, enemyBitmap, enemy.x, enemy.y)) {
+                    endGame();
+                    break;
+                }
             }
         }
 
-        // Remove bullets and enemies
-        bullets.removeAll(bulletsToRemove);
-        enemies.removeAll(enemiesToRemove);
-
-        // Spawn new enemies
-        if (Math.random() < 0.03) {
-            float enemyX = screenWidth + enemyBitmap.getWidth(); // Start off the right side
-            float enemyY = (float) Math.random() * (screenHeight - enemyBitmap.getHeight());
-            enemies.add(new Enemy("Enemy", enemyX, enemyY, 100)); // Example enemy with 100 health
-        }
-
-//        // Update background position
-        backgroundX -= 5; // Adjust this value to control the speed of the scrolling
-        if (backgroundX <= -backgroundBitmap.getWidth()) {
-            backgroundX = 0; // Reset background position when it moves off-screen
+        // Call background updates if necessary
+        if (masterEnemy == null) {
+            createEnemies();
+            updateBackground();
         }
     }
+
 
     private void startReload() {
         isReloading = true;
@@ -410,7 +507,7 @@ public class GameView extends SurfaceView implements Runnable {
         int backgroundHeight = backgroundBitmap.getHeight();
 
         // Draw the background three times
-        canvas.drawBitmap(backgroundBitmap, backgroundX, 0, null);
+        canvas.drawBitmap(backgroundBitmap, backgroundX, -950, null);
         canvas.drawBitmap(backgroundBitmap, backgroundX + backgroundWidth, 0, null);
         canvas.drawBitmap(backgroundBitmap, backgroundX + 2 * backgroundWidth, 0, null);
 
@@ -419,6 +516,16 @@ public class GameView extends SurfaceView implements Runnable {
             backgroundX = 0; // Reset background position
         }
     }
+
+    private void drawPauseOverlay(Canvas canvas) {
+        if (isPaused) {
+            Paint paint = new Paint();
+            paint.setColor(Color.WHITE);
+            paint.setTextSize(100);
+            canvas.drawText("Paused", screenWidth / 2 - 150, screenHeight / 2, paint);
+        }
+    }
+
 
     private  void drawMaster(MasterEnemy masterEnemy, Canvas canvas){
         masterEnemy.draw(canvas);
@@ -447,13 +554,17 @@ public class GameView extends SurfaceView implements Runnable {
 
             drawPowerUps(canvas);
 
-            if (masterEnemy != null){
-                drawMaster(masterEnemy,canvas);
-            }
+//            if (masterEnemy != null){
+//                drawMaster(masterEnemy,canvas);
+//            }
 
             // Draw bullets
             for (Bullet bullet : bullets) {
                 canvas.drawBitmap(bulletBitmap, bullet.x, bullet.y, null);
+            }
+
+            if (masterEnemy != null) {
+                masterEnemy.draw(canvas);
             }
 
             // Draw enemies
@@ -494,6 +605,8 @@ public class GameView extends SurfaceView implements Runnable {
             scorePaint.setColor(Color.WHITE);
             scorePaint.setTextSize(50);
             canvas.drawText("Score: " + score, screenWidth - 350, 100, scorePaint);
+            // Draw the pause button on top
+            drawPauseButton(canvas);
 
             getHolder().unlockCanvasAndPost(canvas);
 
@@ -512,7 +625,7 @@ public class GameView extends SurfaceView implements Runnable {
                     long currentTime = System.currentTimeMillis();  // Initialize current time
                     if (currentTime - lastBulletTime > 100) { // Shoot a bullet every 100 milliseconds
                         bulletsFired++;
-                        bullets.add(new Bullet(bulletX, planeY, 20, 20)); // Add horizontal speed
+                        bullets.add(new Bullet(bulletX, planeY + 160, 20, 20)); // Add horizontal speed
                         playBulletSound(); // Play sound on bullet release
                         lastBulletTime = currentTime; // Update last bullet time
                     }
@@ -524,13 +637,20 @@ public class GameView extends SurfaceView implements Runnable {
     @Override
     public boolean onTouchEvent(MotionEvent event) {
         Log.d("GameView", "Touch event received: x=" + event.getX() + ", y=" + event.getY());
+        int touchX = (int) event.getX();
+        int touchY = (int) event.getY();
 
-        // Update plane position based on touch event
-        planeX = event.getX() - (float) planeBitmap.getWidth() / 2;
-        planeY = event.getY() - (float) planeBitmap.getHeight() / 2;
+//        // Update plane position based on touch event
+//        planeX = event.getX() - (float) planeBitmap.getWidth() / 2;
+//        planeY = event.getY() - (float) planeBitmap.getHeight() / 2;
 
         switch (event.getAction()) {
             case MotionEvent.ACTION_DOWN:
+                if (touchX >= pauseButtonX && touchX <= (pauseButtonX + pauseButtonWidth) &&
+                        touchY >= pauseButtonY && touchY <= (pauseButtonY + pauseButtonHeight)) {
+
+                    isPaused = !isPaused; // Toggle pause state
+                }
             case MotionEvent.ACTION_MOVE:
                 // Shoot bullets while dragging
                 fireBullet();
@@ -543,6 +663,42 @@ public class GameView extends SurfaceView implements Runnable {
         }
 
         return true;
+    }
+
+    @Override
+    public void onSensorChanged(SensorEvent event) {
+        if (event.sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
+            float yAxisValue = event.values[0]; // Y-axis accelerometer value
+
+            // Set a scaling factor to control sensitivity (adjust as needed)
+            float sensitivity = 5.0f;
+
+            // Update plane's Y position based on the tilt (inversing because tilt is opposite)
+            planeY -= yAxisValue * sensitivity;
+
+            // Prevent plane from moving off the screen
+            if (planeY < (float) -planeBitmap.getHeight() /2) {
+                planeY = (float) -planeBitmap.getHeight() /2; // Prevent going above the screen
+            } else if (planeY > (float) planeBitmap.getHeight() + (float) getHeight() /2) {
+                planeY = (float) planeBitmap.getHeight() + (float) getHeight() /2; // Prevent going below the screen
+            }
+
+            // Redraw the game view to reflect the updated position
+            invalidate();
+        }
+    }
+
+
+    @Override
+    public void onAccuracyChanged(Sensor sensor, int accuracy) {
+
+    }
+
+    // Unregister the sensor listener when not in use
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        sensorManager.unregisterListener(this);
     }
 
 
@@ -574,106 +730,20 @@ public class GameView extends SurfaceView implements Runnable {
         }
     }
 
-
-
-
-    // Enemy class with health, name, and position
-    class Enemy {
-        String name;
-        float x, y;
-        int maxHealth, currentHealth;
-
-        Enemy(String name, float x, float y, int maxHealth) {
-            this.name = name;
-            this.x = x;
-            this.y = y;
-            this.maxHealth = maxHealth;
-            this.currentHealth = maxHealth;
+    void pauseBackgroundMusic(){
+        if (mediaPlayer != null) {
+            mediaPlayer.stop();
+            mediaPlayer.release();
+            mediaPlayer = null;
         }
-
-        // Method to reduce health
-        // Inside Enemy class
-        void reduceHealth(int damage) {
-            currentHealth -= damage;
-            if (currentHealth < 0) {
-                currentHealth = 0;
-            }
-
-            // Update score based on enemy's health decrease
-            if (currentHealth == 0) {
-                score += 10; // Increase score by 10 when an enemy is destroyed
-            }
-        }
-
-
-        // Check if enemy is dead
-        boolean isDead() {
-            return currentHealth <= 0;
-        }
-    }
-
-    // MasterEnemy class extending Enemy
-    class MasterEnemy extends Enemy {
-        // Additional properties specific to MasterEnemy (if any)
-        private float speed;
-
-        MasterEnemy(String name, float x, float y, int maxHealth, float speed) {
-            super(name, x, y, maxHealth);
-            this.speed = speed;
-            // MasterEnemy starts off-screen and should move in when needed
-        }
-
-        // Update method to control the movement and other behaviors
-        @Override
-        void reduceHealth(int damage) {
-            currentHealth -= damage;
-            if (currentHealth < 0) {
-                currentHealth = 0;
-            }
-
-            // Update score based on enemy's health decrease
-            if (currentHealth == 0) {
-                score += 1000; // Increase score by 10 when an enemy is destroyed
-            }
-        }
-
-
-        // Check if enemy is dead
-        @Override
-        boolean isDead() {
-            return currentHealth <= 0;
-        }
-
-        void update() {
-            // Move the MasterEnemy from left side to the screen
-            if (x < 0) {
-                x += speed;
-            } else {
-                // Keep MasterEnemy at a specific position when it has fully appeared
-                x = 0;
-            }
-        }
-
-        void draw(Canvas canvas) {
-            // Draw other game elements...
-
-            // Draw master enemy
-            if (masterEnemy != null) {
-                // Assuming you have a method to draw the master enemy
-                canvas.drawBitmap(masterEnemyBitmap, masterEnemy.x, masterEnemy.y, null);
-            }
-        }
-
-        // Optionally, you can override draw method if you have specific drawing logic
-        // @Override
-        // void draw(Canvas canvas) {
-        //     // Draw MasterEnemy on the canvas
-        // }
     }
 
     void endGame() {
         // Handle end game logic (e.g., show game over screen, stop game)
         gameOver = true;
+//        pauseBackgroundMusic();
+        soundPool.play(boomSoundId, 1, 1, 1, 0, 1f);
     }
+
 
 }
