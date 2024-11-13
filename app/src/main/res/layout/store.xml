@@ -1,28 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="100dp"
-    android:layout_height="wrap_content"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:padding="6dp"
+    android:background="@android:color/background_light">
 
-    <TextView
-        android:layout_width="100dp"
-        android:layout_height="606dp"
-        android:layout_marginBottom="20dp"
-        android:text="Select a Ship"
-        android:textColor="@android:color/black"
-        android:textSize="24sp" />
 
-    <LinearLayout
-        android:id="@+id/shipContainer"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical" />
 
-    <Button
-        android:id="@+id/back_to_home"
-        android:layout_width="376dp"
-        android:layout_height="wrap_content"
-        android:onClick="onBackButtonClicked"
-        android:text="Back to Start" />
 </LinearLayout>

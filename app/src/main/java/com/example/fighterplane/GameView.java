@@ -1,5 +1,6 @@
 package com.example.fighterplane;
 
+import com.example.fighterplane.components.*;
 import static android.content.Context.MODE_PRIVATE;
 import android.animation.ValueAnimator;
 import android.app.Activity;
@@ -19,6 +20,7 @@ import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.media.MediaPlayer;
+import android.os.Build;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.media.AudioAttributes;
@@ -31,6 +33,9 @@ import android.graphics.Paint;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
+
+import androidx.annotation.RequiresApi;
+
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.List;
@@ -51,7 +56,7 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
     private Sensor accelerometer;
     private MediaPlayer mediaPlayer;
     private MediaPlayer lasermediaPlayer;
-    private int poseidonHealth = 500000,dragonHealth = 200000;
+    private int poseidonHealth = 200000,dragonHealth = 100000;
     private boolean lowHealth;
     private boolean restart;
     public static int screenHeight;
@@ -62,10 +67,11 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
     private static final long RELOAD_TIME_MS = 1000; // 1 seconds
     private float enemySpawnAcceleration = 1.2f;
     private static final int MAX_BULLETS = 100;
-    private Bitmap  planeBitmap, enemyBitmap, fireballBitmap,bulletBitmap,electricBulletBitmap,backgroundBitmap,
+    private Bitmap  enemyBitmap,alienMonsterBitmap,alienMasterBitmap, alien1Bitmap,alien2Bitmap,alien3Bitmap, fireballBitmap,bulletBitmap,electricBulletBitmap,
                     powerUpBitmap,masterEnemyBitmap,replayButtonBitmap,swordFishBitmap,rocketBitmap,poseidonSwordBitmap,
                     healthBitmap,asteroidBitmap,shieldBitmap,dragonBitmap,pirahnagreenBitmap,crabBitmap,sharkBitmap,octopusgreenBitmap,
                     lightningBitmap,thunderBitmap,greenCoinBitmap,neonBitmap;
+    public Bitmap planeBitmap,backgroundBitmap;
     private List<Bullet> bullets;
     private List<Enemy> enemies;
     private long lastBulletTime;
@@ -80,10 +86,11 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
     private SoundPool soundPool;
     private boolean isPaused;
     private boolean isLoaded;
+    public String selectedMap = "space";
     private boolean Won;
     private int boomSoundId,youcallthatanattackSoundId,nurseSoundId,coinSoundId,poseidonSoundId,poseidonlaughSoundId,
                 bulletSoundId,healthRechargeSoundId,bleepSoundId,triplepowerSoundId,doublepowerSoundId,
-                DevilSoundId,laserSoundId,squeakSoundId,painSoundId,casinoSoundId;
+                DevilSoundId,laserSoundId,doomSoundId,squeakSoundId,painSoundId,casinoSoundId;
     private int BackgroundSoundId;
     private boolean doubleBullet;
     private boolean dragonSpawned;
@@ -91,15 +98,17 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
     private boolean masterDead;
     private Enemy laserEnemy;
     private Bitmap pauseButtonBitmap;
-    private int pauseButtonX = 2100; // X position of the pause button
-    private int pauseButtonY = 800; // Y position of the pause button
+    private int pauseButtonX = screenWidth - 150; // X position of the pause button
+    private int pauseButtonY = screenHeight/2; // Y position of the pause button
+    private float replayButtonX = screenWidth - 150;
+    private float replayButtonY = screenHeight/2 - 200;
     private int pauseButtonWidth, pauseButtonHeight,enemySize;
     private int replayButtonWidth, replayButtonHeight;
-    private int attack = 100,powerupSize;
-    private float speed = 20f;
+    private int attack = 200,powerupSize;
+    private float speed = 40f;
     public Hero hero;
     private int planeY,planeX,masterScore = 0;
-    private int planeWidth = 50,planeHeight=50;
+    private int planeWidth = 70,planeHeight=70;
     private int bulletWidth = 5,bulletHeight=5;
     private List<PowerUp> powerUps;
     public static MasterEnemy masterEnemy;
@@ -107,8 +116,7 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
     private int bulletsFired = 0;
     private boolean isReloading = false;
     private long reloadStartTime = 0;
-    private float replayButtonX = 2100;
-    private float replayButtonY = 500;
+
     private float beamLength;
     private Paint progressBarPaint;
     private Paint progressBarBackgroundPaint;
@@ -133,11 +141,13 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
 
     private GameManager gameManager;
 
-    private Bitmap decodeSampledBitmapFromResource(Resources res, int resId, int reqWidth, int reqHeight) {
+    public static Bitmap decodeSampledBitmapFromResource(Resources res, int resId, int reqWidth, int reqHeight) {
         System.out.println("decoding resources");
         final BitmapFactory.Options options = new BitmapFactory.Options();
         options.inJustDecodeBounds = true;
-        options.inScaled = true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.DONUT) {
+            options.inScaled = true;
+        }
         options.inPreferredConfig = Bitmap.Config.ALPHA_8;
         BitmapFactory.decodeResource(res, resId, options);
 
@@ -158,10 +168,26 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
         return bitmap;
     }
 
+    public void saveLevel(Context context, int level) {
+        SharedPreferences sharedPreferences = context.getSharedPreferences("GameData", MODE_PRIVATE);
+        SharedPreferences.Editor editor = sharedPreferences.edit();
+        editor.putInt("currentLevel", level);
+        editor.apply(); // or editor.commit() for synchronous saving
+    }
+
+    public int getLevel(Context context) {
+        SharedPreferences sharedPreferences = context.getSharedPreferences("GameData", MODE_PRIVATE);
+        // Default to level 1 if no level data is found
+        return sharedPreferences.getInt("currentLevel", 1);
+    }
+
+
     public void pause() {
         isPaused = true;   // Use this to skip update logic
         if (soundPool != null) {
-            soundPool.autoPause(); // Pause any playing sounds
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.FROYO) {
+                soundPool.autoPause(); // Pause any playing sounds
+            }
         }
         if (mediaPlayer != null) {
             mediaPlayer.pause(); // Pause any playing sounds
@@ -292,6 +318,7 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
         lowHealth = false;
         masterEnemy = null;
         enterPoseiden=false;
+        selectedMap = "space";
         isPaused = false;
         doubleBullet = false;
         dragonSpawned = false;
@@ -310,16 +337,17 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
         doublepowerSoundId = soundPool.load(context, R.raw.double_power, 1);
         DevilSoundId = soundPool.load(context, R.raw.devil_laugh, 1);
         laserSoundId = soundPool.load(context, R.raw.lasergun, 1);
-        squeakSoundId = soundPool.load(context, R.raw.squeak, 1);
         painSoundId = soundPool.load(context, R.raw.pain, 1);
         casinoSoundId = soundPool.load(context, R.raw.casino, 1);
+        squeakSoundId = soundPool.load(context, R.raw.squeak, 1);
+        doomSoundId = soundPool.load(context, R.raw.doom, 1);
         restart = false;
         isLoaded = false;
         isBeamActive = false;
         beamLength=0;
-        enemySpawnRate = 0.08f;
+        enemySpawnRate = 0.1f;
         movingRight = true;
-        enemySpawnAcceleration = 2;
+        enemySpawnAcceleration = 3;
         dragonSpawned = false;
         PoseidonSpawned = false;
         Won = false;
@@ -354,11 +382,16 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
         poseidonSwordBitmap = rotateBitmap(poseidonSwordBitmap, 270f);
         rocketBitmap = rotateBitmap(rocketBitmap, 90f);
         electricBulletBitmap = rotateBitmap(decodeSampledBitmapFromResource(getResources(), R.drawable.electricbullet, bulletWidth, bulletHeight),90f);
-        backgroundBitmap = decodeSampledBitmapFromResource(getResources(), R.drawable.oceanbackground, 3898, 2000); // Ensure this is 3 times the width of the screen
+        backgroundBitmap = decodeSampledBitmapFromResource(getResources(), R.drawable.space, 10, 10); // Ensure this is 3 times the width of the screen
         // Load the power-up bitmap (adjust dimensions as needed)
         powerUpBitmap = decodeSampledBitmapFromResource(getResources(), R.drawable.powerup, powerupSize-8, powerupSize-8);
         masterEnemyBitmap = decodeSampledBitmapFromResource(getResources(), R.drawable.poseidon_left, 250, 250);
         neonBitmap = decodeSampledBitmapFromResource(getResources(), R.drawable.neon_red, 400, 400);
+        alien1Bitmap = decodeSampledBitmapFromResource(getResources(), R.drawable.alien1, 50, 50);
+        alien2Bitmap = decodeSampledBitmapFromResource(getResources(), R.drawable.alien2, 50, 50);
+        alien3Bitmap = decodeSampledBitmapFromResource(getResources(), R.drawable.alien3, 50, 50);
+        alienMasterBitmap = decodeSampledBitmapFromResource(getResources(), R.drawable.alienmonster, 250, 250);
+        alienMonsterBitmap = decodeSampledBitmapFromResource(getResources(), R.drawable.aliendragon, 300, 300);
         initializePauseButton();
         initializeReplayButton();
 
@@ -370,9 +403,7 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
 
         planeX = 0;
         planeY = 500;
-        hero = new Hero("Plane",planeX,planeY,10000,planeBitmap);
-
-
+        hero = new Hero("Plane",planeX,planeY,4000,planeBitmap);
 
         getHolder().addCallback(new SurfaceHolder.Callback() {
             @Override
@@ -432,7 +463,11 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
     }
 
     void playsqueakSound(){
-        soundPool.play(squeakSoundId, 0.3f, 0.3f, 2, 0, 1f);
+        if (selectedMap == "ocean"){
+            soundPool.play(squeakSoundId, 0.3f, 0.3f, 2, 0, 1f);
+        }else if (selectedMap == "space"){
+            soundPool.play(doomSoundId, 0.3f, 0.3f, 2, 0, 1f);
+        }
     }
 
     void playpainSound(){
@@ -576,11 +611,11 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
 
     private void drawReplayButton(Canvas canvas) {
         // Draw the replay button in the center of the screen
-        canvas.drawBitmap(replayButtonBitmap, replayButtonX, replayButtonY, null);
+        canvas.drawBitmap(replayButtonBitmap, screenWidth - 150, screenHeight/2, null);
     }
 
     private void drawPauseButton(Canvas canvas) {
-        canvas.drawBitmap(pauseButtonBitmap, pauseButtonX, pauseButtonY, null);
+        canvas.drawBitmap(pauseButtonBitmap, screenWidth - 150, screenHeight/2 - 200, null);
     }
 
     private void updatePowerUps() {
@@ -677,6 +712,10 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
             masterEnemy = new MasterEnemy(name, startX, startY, poseidonmaxHealth, speed, masterEnemyBitmap,10000);
         }else if (name == "dragon"){
             masterEnemy = new MasterEnemy(name, startX, startY - 200, dragonmaxHealth, speed, dragonBitmap,10000);
+        } else if (name == "alienMaster") {
+            masterEnemy = new MasterEnemy(name, startX, startY, poseidonmaxHealth, speed, alienMasterBitmap,10000);
+        } else if (name == "alienMonster") {
+            masterEnemy = new MasterEnemy(name, startX, startY, dragonmaxHealth, speed, alienMonsterBitmap,10000);
         }
     }
 
@@ -723,21 +762,13 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
                 update();
             }
             draw();
+            System.out.println(getWidth() + "is the width " + getHeight() + "is the height");
             try {
                 Thread.sleep(16); // approx 60 FPS
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
         }
-    }
-
-    // Example collision check method
-    boolean checkCollision(MasterEnemy masterEnemy) {
-        // Assuming you have getBounds() methods for both player and masterEnemy
-        return hero.x < masterEnemy.x + enemyBitmap.getWidth() &&
-//                hero.x + bulletBitmap.getWidth() > masterEnemy.x &&
-                hero.y < masterEnemy.y + enemyBitmap.getHeight() &&
-                hero.y + bulletBitmap.getHeight() > masterEnemy.y;
     }
 
     private boolean pixelPerfectCollision(Bitmap bitmapA, float xA, float yA, Bitmap bitmapB, float xB, float yB) {
@@ -762,17 +793,18 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
             // Iterate through the pixels in the overlapping rectangle
             for (int x = xOverlap; x < xOverlapEnd; x++) {
                 for (int y = yOverlap; y < yOverlapEnd; y++) {
-                    int pixelA = bitmapA.getPixel(x - (int) xA, y - (int) yA);
-                    int pixelB = bitmapB.getPixel(x - (int) xB, y - (int) yB);
+                    // Get the alpha component of both pixels
+                    int alphaA = Color.alpha(bitmapA.getPixel(x - (int) xA, y - (int) yA));
+                    int alphaB = Color.alpha(bitmapB.getPixel(x - (int) xB, y - (int) yB));
 
-                    // Check if the pixels are not transparent (alpha > 0)
-                    if (pixelA != Color.TRANSPARENT && pixelB != Color.TRANSPARENT) {
-                        return true; // Collision detected
+                    // If both pixels have non-zero alpha, there's a collision
+                    if (alphaA > 0 && alphaB > 0) {
+                        return true;
                     }
                 }
             }
         }
-        return false; // No collision detected
+        return false;
     }
 
 
@@ -780,30 +812,49 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
     void createEnemies(){
         // Spawn new enemies
         if (Math.random() < enemySpawnRate) {
+            String[] types = new String[0];
             float enemyX = screenWidth + enemySize; // Start off the right side
             float enemyY = (float) Math.random() * (screenHeight - enemySize);
-            String[] types = {"crab","octopus","shark"};
+            if (selectedMap == "space"){
+                types = new String[]{"alien1", "alien2", "alien3"};
+            }else{
+                types = new String[]{"crab", "octopus", "shark"};
+            }
             String randomType = types[(int) (Math.random() * types.length)];
 
 
             if (masterEnemy != null && masterEnemy.name == "poseidon"){
                 double probability = random.nextDouble();
-                if (probability <= 0.05) {
-                    enemies.add(new Enemy("sword", enemyX, enemyY, 2500, poseidonSwordBitmap, 5000)); // Example enemy with 100 health
+                if (probability <= 0.09) {
+                    enemies.add(new Enemy("sword", enemyX, enemyY, 5500, poseidonSwordBitmap, 10000)); // Example enemy with 100 health
                     return;
                 }
             }
 
             switch (randomType){
                 case "crab":
-                    enemies.add(new Enemy("Enemy", enemyX, enemyY, 1500, crabBitmap, 50)); // Example enemy with 100 health
+                    enemies.add(new Enemy("Enemy", enemyX, enemyY, 500, crabBitmap, 50)); // Example enemy with 100 health
                     break;
+
                 case "octopus":
-                    enemies.add(new Enemy("Enemy", enemyX, enemyY, 1500, octopusgreenBitmap, 100)); // Example enemy with 100 health
+                    enemies.add(new Enemy("Enemy", enemyX, enemyY, 500, octopusgreenBitmap, 100)); // Example enemy with 100 health
                     break;
+
                 case "shark":
-                    enemies.add(new Enemy("Enemy", enemyX, enemyY, 1500, sharkBitmap, 200)); // Example enemy with 100 health
+                    enemies.add(new Enemy("Enemy", enemyX, enemyY, 500, sharkBitmap, 200)); // Example enemy with 100 health
                     break;
+
+                case "alien1":
+                    enemies.add(new Enemy("Enemy", enemyX, enemyY, 500, alien1Bitmap, 200)); // Example enemy with 100 health
+                    break;
+
+                case "alien2":
+                    enemies.add(new Enemy("Enemy", enemyX, enemyY, 500, alien2Bitmap, 200)); // Example enemy with 100 health
+                    break;
+                case "alien3":
+                    enemies.add(new Enemy("Enemy", enemyX, enemyY, 500, alien3Bitmap, 200)); // Example enemy with 100 health
+                    break;
+
                 default:
                     break;
             }
@@ -833,6 +884,27 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
         // Draw the text "You WonDragon the Game" in the center of the screen
         canvas.drawText(message, canvasWidth / 2, canvasHeight / 2, paint);
     }
+
+    public void displayLevelUpMessage(Canvas canvas, String message) {
+        // Set up the paint for drawing text
+        Paint paint = new Paint();
+        paint.setColor(Color.YELLOW); // Text color
+        paint.setTextSize(100);      // Text size
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD)); // Bold font
+
+        // Get screen width and height (assuming canvas size matches screen)
+        int canvasWidth = canvas.getWidth();
+        int canvasHeight = canvas.getHeight();
+
+        // Draw the text "You WonDragon the Game" in the center of the screen
+        canvas.drawText(message, canvasWidth / 2, canvasHeight / 2 + 100, paint);
+    }
+
+    public void setSelectedMap(String map) {
+        this.selectedMap = map; // Store the selected map for game logic
+    }
+
 
 
     private final Object bulletLock = new Object();
@@ -883,13 +955,21 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
             dragonSpawned = true;
             DevilSound();
             System.out.println("Creating master");
-            createMaster("dragon");
+            if (selectedMap == "ocean"){
+                createMaster("dragon");
+            }else if(selectedMap == "space"){
+                createMaster("alienMonster");
+            }
         }
 
         if ( WonDragon && !PoseidonSpawned && enterPoseiden) {
             enterPoseiden = false;
             PoseidonSpawned = true;
-            createMaster("poseidon");
+            if (selectedMap == "ocean"){
+                createMaster("poseidon");
+            }else if(selectedMap == "space"){
+                createMaster("alienMaster");
+            }
             System.out.println("Creating poseidon");
         }
 
@@ -897,14 +977,14 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
         if (masterEnemy != null) {
             System.out.println("master's position: " + masterEnemy.x);
             float maxPoint;
-            if (masterEnemy.name == "poseidon"){
+            if (masterEnemy.name == "poseidon" || masterEnemy.name == "alienMaster" ){
                 maxPoint = getWidth() - masterEnemy.bitmap.getWidth();
             }else{
                 maxPoint = getWidth() - masterEnemy.bitmap.getWidth();
             }
             if (masterEnemy.x > maxPoint){
                 masterEnemy.x -= 10;
-            } else if (masterEnemy.name == "dragon" && !isBeamActive) {
+            } else if ((masterEnemy.name == "dragon" || masterEnemy.name == "alienMonster") && !isBeamActive) {
                 isBeamActive = true;
                 createLaser();
                 playLaserSound();
@@ -920,13 +1000,13 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
             }
         }
 
-//        if (isBeamActive && pixelPerfectCollision(hero.bitmap, hero.x, hero.y, laserEnemy.bitmap, laserEnemy.x, laserEnemy.y)) {
-//            hero.currentHealth -= laserEnemy.attack;
-//            playpainSound();
-//            if (hero.isDead()){
-//                endGame();
-//            }
-//        }
+        if (isBeamActive && pixelPerfectCollision(hero.bitmap, hero.x, hero.y, laserEnemy.bitmap, laserEnemy.x, laserEnemy.y)) {
+            hero.currentHealth -= laserEnemy.attack;
+            playpainSound();
+            if (hero.isDead()){
+                endGame();
+            }
+        }
 
         // Temporary lists to hold bullets and enemies to remove
         List<Bullet> bulletsToRemove = new ArrayList<>();
@@ -950,9 +1030,9 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
         // Update enemies
         synchronized (enemies) { // Synchronize access to enemies list
             for (Enemy enemy : enemies) {
-                enemy.x -= 30; // Move the enemy to the left
+                enemy.x -= 50; // Move the enemy to the left
                 if (enemy.name == "sword"){
-                    enemy.x -= 60;
+                    enemy.x -= 80;
                 }
                 if (enemy.x + enemyBitmap.getWidth() < 0) {
                     enemiesToRemove.add(enemy); // Mark for removal
@@ -983,7 +1063,7 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
                         System.out.println(masterEnemy.currentHealth + "is the master's current health");
                         bulletsToRemove.add(bullet); // Mark for removal
 
-                        if (masterEnemy != null && masterEnemy.isDead() && masterEnemy.name == "dragon") {
+                        if (masterEnemy != null && masterEnemy.isDead() && (masterEnemy.name == "dragon" || masterEnemy.name == "alienMonster")) {
                             WonDragon = true;
                             masterEnemy.startDying(context); // Trigger the dying animation
                             masterEnemy = null; // Mark for removal
@@ -991,9 +1071,17 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
                             System.out.println("Dragon died🥲");
                             isBeamActive = false;
                             laserEnemy = null;
-                            stopLaserSound();
+                            if (lasermediaPlayer != null){
+                                stopLaserSound();
+                            }
                         }
-                        if (masterEnemy != null && masterEnemy.isDead() && masterEnemy.name == "poseidon") {
+                        if (masterEnemy != null && masterEnemy.isDead() && (masterEnemy.name == "poseidon" || masterEnemy.name == "alienMaster")) {
+                            if (masterEnemy.name == "poseidon"){
+                                saveLevel(context, 1);
+                            }else{
+                                saveLevel(context, 2);
+                            }
+                            pauseBackgroundMusic();
                             masterEnemy = null; // Mark for removal
                             System.out.println("master died🥲");
                             Won = true;
@@ -1099,7 +1187,7 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
         healthPaint.setColor(Color.RED); // Full health color (background)
         float healthBarWidth = 60;
         float healthBarHeight = 10;
-        if (enemy.name == "poseidon" || enemy.name == "dragon"){
+        if (enemy.name == "poseidon" || enemy.name == "dragon" || enemy.name == "alienMaster" || enemy.name == "alienMonster"){
             healthPaint.setColor(Color.YELLOW); // Full health color (background)
             healthBarWidth = 500;
             healthBarHeight = 30;
@@ -1172,7 +1260,7 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
         System.out.println("🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨🎨");
         paint.setAntiAlias(true); // Smooth edges for the neon effect
         paint.setStyle(Paint.Style.FILL); // Fills shapes rather than just outlines
-        beamStartX = getWidth() - (float)dragonBitmap.getWidth() /2 - 250;
+        beamStartX = getWidth() - (float)masterEnemy.bitmap.getWidth() /2 - 250;
         beamEndX = 0;
         beamStartY = (float) getHeight() /2 + 80;
         beamEndY = (float) getHeight() /2 + 100;
@@ -1192,7 +1280,7 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
         waveOffset += 0.3f; // Update wave offset for continuous wave motion
 
         // Draw the bitmap
-        canvas.drawBitmap(laserEnemy.bitmap, bitmapX, bitmapY, paint);
+        canvas.drawBitmap(laserEnemy.bitmap, laserEnemy.x, laserEnemy.y, paint);
     }
 
     private void drawRoundedRect(Canvas canvas, float left, float top, float right, float bottom, float radius, Paint paint) {
@@ -1248,6 +1336,9 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
             Canvas canvas = getHolder().lockCanvas();
             canvas.drawRGB(0, 0, 0);
 
+            // Draw background
+            drawBackground(canvas);
+
             if (isReloading) {
                 long elapsedTime = System.currentTimeMillis() - reloadStartTime;
                 float progress = (float) elapsedTime / RELOAD_TIME_MS;
@@ -1258,17 +1349,13 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
                 }
             }
 
-            // Draw background
-            drawBackground(canvas);
-
-
             // Draw plane
             canvas.drawBitmap(hero.bitmap, hero.x, hero.y, null);
 
             drawPowerUps(canvas);
 
             if (masterEnemy != null){
-                enemyBitmap = poseidonSwordBitmap;
+                enemyBitmap = masterEnemy.bitmap;
             }
 
             // Draw bullets
@@ -1280,9 +1367,9 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
                 }
             }
 
-//            if (isBeamActive && !isPaused) {
-//                drawMovingNeon(canvas);
-//            }
+            if (isBeamActive && !isPaused) {
+                drawMovingNeon(canvas);
+            }
 
             if (masterEnemy != null) {
                 masterEnemy.draw(canvas);
@@ -1317,8 +1404,6 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
             drawPauseButton(canvas);
             drawReplayButton(canvas);
 
-            getHolder().unlockCanvasAndPost(canvas);
-
             if (gameManager.isGameOver()){
                 displayWinMessage(canvas, "Game Over");
             }
@@ -1326,8 +1411,13 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
             if (Won){
                 displayWinMessage(canvas, "You Won");
                 System.out.println("We won 🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥");
+                if (getLevel(context) == 1){
+                    displayLevelUpMessage(canvas, "Level 1 Unlocked!");
+                }
             }
 
+            // Unlock and post the canvas
+            getHolder().unlockCanvasAndPost(canvas);
         }
     }
 
@@ -1368,22 +1458,18 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
         int touchX = (int) event.getX();
         int touchY = (int) event.getY();
 
-//        // Update plane position based on touch event
-//        hero.x = event.getX() - (float) hero.bitmap.getWidth() / 2;
-//        hero.y = event.getY() - (float) hero.bitmap.getHeight() / 2;
-
         switch (event.getAction()) {
             case MotionEvent.ACTION_DOWN:
-                if (touchX >= pauseButtonX && touchX <= (pauseButtonX + pauseButtonWidth) &&
-                        touchY >= pauseButtonY && touchY <= (pauseButtonY + pauseButtonHeight)) {
+                if (touchX >= screenWidth - 150 && touchX <= (screenWidth - 150 + pauseButtonWidth) &&
+                        touchY >= screenHeight/2 - 200 && touchY <= (screenHeight/2 - 200 + pauseButtonHeight)) {
 
                     isPaused = !isPaused; // Toggle pause state
                     initializePauseButton();
                 }
 
                 // Check if the touch is within the bounds of the replay button
-                if (touchX >= replayButtonX && touchX <= replayButtonX + replayButtonWidth
-                        && touchY >= replayButtonY && touchY <= replayButtonY + replayButtonHeight) {
+                if (touchX >= screenWidth - 150 && touchX <= screenWidth - 150 + replayButtonWidth
+                        && touchY >= screenHeight/2 && touchY <= screenHeight/2 + replayButtonHeight) {
                     // Replay button clicked
                     restartGame();
                     return true; // Return true to consume the touch event
@@ -1445,9 +1531,6 @@ public class GameView extends SurfaceView implements Runnable, SensorEventListen
         super.onDetachedFromWindow();
         sensorManager.unregisterListener(this);
     }
-
-
-
 
     void pauseBackgroundMusic(){
         if (mediaPlayer != null) {
