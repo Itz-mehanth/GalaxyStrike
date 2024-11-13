@@ -1,4 +1,4 @@
-# Fighter Plane Game
+# Galaxy Strike - Conqueror of the planets
 
 ## 🎮 Overview
 **Fighter Plane Game** is a thrilling 2D shooter game built in Java for Android (supports SDK 31 to 34). Players control a fighter plane through two unique maps, facing alien and oceanic enemies, collecting power-ups, and ultimately battling powerful bosses. The game leverages device sensors, including the gyroscope and accelerometer, to create an immersive experience where players can control their plane by rotating their phone and tap to shoot.
